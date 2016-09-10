@@ -115,11 +115,11 @@ function momentum() {
 
 	var jsonPseUrl = 'http://phisix-api.appspot.com/stocks.json';
 	var momentumStocks = CURR_DIR + "/momentum_stocks.csv"
-	var momentumHeader = "symbol, price, volume, 1-year-return, last_month_price, last_month_volume \n";
+	var momentumHeader = "symbol, price, volume, 1-year-return, last_month_price, last_month_volume, momentum \n";
 	fs.writeFile(momentumStocks, momentumHeader, fsCallback);
 
 	var source1 = rx.Observable
-		.interval(1000);
+		.interval(500);
 		//.take(5);
 	var source2 = getStocks(jsonPseUrl);
 	rx.Observable.zip(source1, source2)
@@ -176,7 +176,7 @@ function momentum() {
     	}) 
     .concatAll()
     .map(function(stock) {
-    	console.log("phisix-api: " + stock);
+    	//console.log("phisix-api: " + stock);
 		var stockUrl = "http://phisix-api.appspot.com/stocks/" + 
                     stock.symbol + '.' + LAST_MONTH + '.json';
         var stockFile = CURR_DIR + "/" + stock.symbol + "-last_month.txt";            
@@ -203,6 +203,8 @@ function momentum() {
 
         	//console.log(stock.symbol + " last month:" + body);
         	var newStock = stock;
+        	newStock.momentum = stock.one_year_return;
+
         	if (body === "" ) {
         		newStock.last_month_price = 0;
 				newStock.last_month_volume = 0;
@@ -210,7 +212,11 @@ function momentum() {
             	json_data = JSON.parse(body);				            	
 				newStock.last_month_price = json_data.stock[0].price.amount;
 				newStock.last_month_volume = json_data.stock[0].volume;	
-        	}
+				if (stock.last_month_price != 0) {
+					newStock.momentum = stock.one_year_return - 
+					                    100*(stock.price.amount - stock.last_month_price)/stock.last_month_price;
+				}
+        	}			
         	return newStock;
         }, function(error) {
         	console.log(stock.symbol + ": error getting last month stock data");
@@ -221,7 +227,8 @@ function momentum() {
 		console.log(stock);
 		var stockCSV = stock.symbol + ", " + stock.price.amount + ", " + 
     					   stock.volume + "," + stock.one_year_return + ", " + 
-    					   stock.last_month_price + "," + stock.last_month_volume + "\n";
+    					   stock.last_month_price + "," + stock.last_month_volume + "," + 
+    					   stock.momentum + "\n";
     	fs.appendFile(momentumStocks, stockCSV, fsCallback);
 	})
 	.subscribe()

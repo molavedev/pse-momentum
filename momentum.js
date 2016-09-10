@@ -2,6 +2,7 @@ var rx = require('rxjs/Rx');
 var request = require('request');
 var fs = require('fs');
 var RSVP = require('rsvp');
+var tidy = require('htmltidy').tidy;
 
 
 var CURR_DIR = 'downloads/2016-september-10'
@@ -67,18 +68,35 @@ function getStocks(siteUrl) {
 	}
 }
 
-function getOneYearReturnFromLines(body) {
-	var oneYearReturnStr = '1 Yr Return';
-	var lines = body.split('\n');
-	var arraylength = lines.length;
-	for (var i = 0; i < arraylength; i++) {
-		if (lines[i].indexOf(oneYearReturnStr) !== -1) {
-			var oneYearReturn = lines[i+3];
-			oneYearReturn = oneYearReturn.replace('%', '').trim();
-			//console.log(stock.symbol + ": " + oneYearReturn)
-			return parseFloat(oneYearReturn);
-		}
-	}
+function getOneYearReturnFromLines(stock, body) {
+	var promise = new RSVP.Promise(function(resolve, reject) {
+		tidy(body, function(err, html) {
+	    	//fs.writeFile(CURR_DIR+ '/' + stock.symbol + '-tidy', html, fsCallback);;
+
+	    	var result = NaN;
+
+	    	var oneYearReturnStr = '1 Yr Return';
+			var lines = html.split('\n');
+			var arraylength = lines.length;
+			for (var i = 0; i < arraylength; i++) {
+				if (lines[i].indexOf(oneYearReturnStr) !== -1) {
+					var oneYearReturn = lines[i+1]; //actual 1-year return is in the next line
+					oneYearReturn = oneYearReturn.substring(oneYearReturn.indexOf('>') + 1)
+					oneYearReturn = oneYearReturn.substring(0, oneYearReturn.indexOf('%'));
+					//console.log(stock.symbol + ": " + oneYearReturn)
+					result = parseFloat(oneYearReturn); 
+					resolve(result);
+
+					break;
+				}
+			}
+
+			if (isNaN(result)) {
+				reject(this);
+			}
+		});
+	});
+ 	return promise;
 }
 
 
@@ -101,8 +119,8 @@ function momentum() {
 	fs.writeFile(momentumStocks, momentumHeader, fsCallback);
 
 	var source1 = rx.Observable
-		.interval(10000);
-		//.take(1);
+		.interval(1000);
+		//.take(5);
 	var source2 = getStocks(jsonPseUrl);
 	rx.Observable.zip(source1, source2)
 	.map(function(stock) {
@@ -140,21 +158,29 @@ function momentum() {
 			})           
 
             return promise.then(function(body) {
+            	return getOneYearReturnFromLines(stock, body);
+            }, function(error) {
+            	console.log(stock.symbol + ": error getting bloomberg data");
+            }).then(function(oneYearReturnFromBloomberg) {
+            	console.log(stock.symbol + " - final 1 year return: " + oneYearReturnFromBloomberg);
             	var newStock = stock;
-				var oneYear = getOneYearReturnFromLines(body);
+				var oneYear = oneYearReturnFromBloomberg;
 				newStock.one_year_return = oneYear;
 				return newStock;
             }, function(error) {
-            	console.log(stock.symbol + ": error getting bloomberg data");
-            })
+            	console.log(stock.symbol + ": error parsing bloomberg data");
+            });
+
+            //return rx.Observable.fromPromise(newPromise);
 
     	}) 
     .concatAll()
     .map(function(stock) {
+    	console.log("phisix-api: " + stock);
 		var stockUrl = "http://phisix-api.appspot.com/stocks/" + 
                     stock.symbol + '.' + LAST_MONTH + '.json';
         var stockFile = CURR_DIR + "/" + stock.symbol + "-last_month.txt";            
-         var promise = new RSVP.Promise(function(resolve, reject) {
+        var promise = new RSVP.Promise(function(resolve, reject) {
          	try {
 				result = fs.readFileSync(stockFile, "utf-8");
 				resolve(result)
